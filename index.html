@@ -120,11 +120,40 @@
         let uploadedFiles = [];
         let isAdmin = false;
         
+        // Initialize from localStorage
+        function initializeFromStorage() {
+            const storedFiles = localStorage.getItem('pythonFiles');
+            if (storedFiles) {
+                try {
+                    uploadedFiles = JSON.parse(storedFiles);
+                    uploadedFiles.forEach(fileData => {
+                        createFileListItem(fileData);
+                    });
+                } catch (e) {
+                    console.error('Error parsing stored files:', e);
+                    localStorage.removeItem('pythonFiles');
+                }
+            }
+            
+            // Restore admin state
+            const storedAdmin = localStorage.getItem('isAdmin');
+            if (storedAdmin === 'true') {
+                isAdmin = true;
+                activateAdminFeatures();
+            }
+        }
+        
+        // Save files to localStorage
+        function saveFilesToStorage() {
+            localStorage.setItem('pythonFiles', JSON.stringify(uploadedFiles));
+        }
+        
         // Role selection
         adminBtn.addEventListener('click', () => {
             const password = prompt("Enter admin password:");
             if (password === "admin123") { // Simple password check
                 isAdmin = true;
+                localStorage.setItem('isAdmin', 'true');
                 activateAdminFeatures();
                 alert("Logged in as admin");
             } else {
@@ -134,6 +163,7 @@
         
         userBtn.addEventListener('click', () => {
             isAdmin = false;
+            localStorage.removeItem('isAdmin');
             deactivateAdminFeatures();
             alert("Continuing as normal user");
         });
@@ -144,6 +174,11 @@
             });
             uploadArea.style.display = 'block';
             adminFeatures.style.display = 'block';
+            
+            // Show delete buttons for existing files
+            document.querySelectorAll('.remove-btn').forEach(btn => {
+                btn.style.display = 'inline-block';
+            });
         }
         
         function deactivateAdminFeatures() {
@@ -182,20 +217,45 @@
             
             for (let file of files) {
                 if (file.name.endsWith('.py')) {
-                    if (!uploadedFiles.some(f => f.name === file.name)) {
-                        uploadedFiles.push(file);
-                        addFileToList(file);
-                    }
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const fileData = {
+                            name: file.name,
+                            content: e.target.result,
+                            lastModified: file.lastModified
+                        };
+                        
+                        // Check if file already exists
+                        const existingIndex = uploadedFiles.findIndex(f => f.name === file.name);
+                        if (existingIndex >= 0) {
+                            // Update existing file
+                            uploadedFiles[existingIndex] = fileData;
+                        } else {
+                            // Add new file
+                            uploadedFiles.push(fileData);
+                        }
+                        
+                        saveFilesToStorage();
+                        createFileListItem(fileData);
+                    };
+                    reader.readAsText(file);
                 }
             }
         }
         
-        function addFileToList(file) {
+        function createFileListItem(fileData) {
+            // Check if this file already exists in the DOM
+            const existingItem = document.querySelector(`li[data-filename="${fileData.name}"]`);
+            if (existingItem) {
+                existingItem.remove();
+            }
+            
             const li = document.createElement('li');
             li.className = 'file-item';
+            li.dataset.filename = fileData.name;
             
             const fileName = document.createElement('span');
-            fileName.textContent = file.name;
+            fileName.textContent = fileData.name;
             
             const buttons = document.createElement('div');
             
@@ -203,23 +263,24 @@
             const viewBtn = document.createElement('button');
             viewBtn.textContent = 'View';
             viewBtn.className = 'view-btn';
-            viewBtn.onclick = () => displayFileContent(file);
+            viewBtn.onclick = () => displayFileContent(fileData);
             
             // Download button (for everyone)
             const downloadBtn = document.createElement('button');
             downloadBtn.textContent = 'Download';
             downloadBtn.className = 'download-btn';
-            downloadBtn.onclick = () => downloadFile(file);
+            downloadBtn.onclick = () => downloadFile(fileData);
             
             // Remove button (admin only)
             const removeBtn = document.createElement('button');
             removeBtn.textContent = 'Delete';
             removeBtn.className = 'remove-btn';
             removeBtn.onclick = () => {
-                if (confirm(`Delete ${file.name}?`)) {
+                if (confirm(`Delete ${fileData.name}?`)) {
                     li.remove();
-                    uploadedFiles = uploadedFiles.filter(f => f.name !== file.name);
-                    if (fileContent.dataset.currentFile === file.name) {
+                    uploadedFiles = uploadedFiles.filter(f => f.name !== fileData.name);
+                    saveFilesToStorage();
+                    if (fileContent.dataset.currentFile === fileData.name) {
                         fileContent.textContent = 'Select a file to view its contents...';
                         delete fileContent.dataset.currentFile;
                     }
@@ -238,23 +299,18 @@
             fileList.appendChild(li);
         }
         
-        function displayFileContent(file) {
-            const reader = new FileReader();
-            
-            reader.onload = (e) => {
-                fileContent.textContent = e.target.result;
-                fileContent.dataset.currentFile = file.name;
-            };
-            
-            reader.readAsText(file);
+        function displayFileContent(fileData) {
+            fileContent.textContent = fileData.content;
+            fileContent.dataset.currentFile = fileData.name;
         }
         
-        function downloadFile(file) {
-            const a = document.createElement('a');
-            const url = URL.createObjectURL(file);
+        function downloadFile(fileData) {
+            const blob = new Blob([fileData.content], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
             
+            const a = document.createElement('a');
             a.href = url;
-            a.download = file.name;
+            a.download = fileData.name;
             document.body.appendChild(a);
             a.click();
             
@@ -264,8 +320,13 @@
             }, 0);
         }
         
-        // Initialize as normal user
-        deactivateAdminFeatures();
+        // Initialize on page load
+        window.addEventListener('DOMContentLoaded', initializeFromStorage);
+        
+        // Initialize as normal user (unless admin state is stored)
+        if (localStorage.getItem('isAdmin') !== 'true') {
+            deactivateAdminFeatures();
+        }
     </script>
 </body>
 </html>
